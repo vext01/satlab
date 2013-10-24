@@ -8,6 +8,10 @@ class Node(object):
         tree.in_cnf = True
         return tree
 
+    def to_clauses(self):
+        if not self.is_cnf():
+            raise RuntimeError("Not in CNF")
+
     def is_cnf(self): return self.in_cnf
     def _to_cnf(self): raise RuntimeError("not implemented in base class")
     def is_leaf(self): raise RuntimeError("not implemented in base class")
@@ -24,6 +28,9 @@ class UnaryNode(Node):
 class Not(UnaryNode):
     def __init__(self, arg):
         super(Not, self).__init__("~", arg)
+
+    def _to_cnf(self, witness):
+        return Not(self.children[0]._to_cnf(witness))
 
 class Lit(Node):
 
