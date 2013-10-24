@@ -1,18 +1,17 @@
-class Node(object):
+def indent_str(level): return " " * (level)
+def format_tree(node): return node.tree_str(0)
 
-    def __init__(self): self.in_cnf = False
+class Node(object):
 
     # top level CNF conversion
     def to_cnf(self):
         tree = self._to_cnf(Lit.new_internal())
-        tree.in_cnf = True
         return tree
 
     def to_clauses(self):
-        if not self.is_cnf():
-            raise RuntimeError("Not in CNF")
+        conv = CNFConverter(self)
+        return conv.go()
 
-    def is_cnf(self): return self.in_cnf
     def _to_cnf(self): raise RuntimeError("not implemented in base class")
     def is_leaf(self): raise RuntimeError("not implemented in base class")
 
@@ -20,10 +19,13 @@ class UnaryNode(Node):
     def __init__(self, oper_str, arg):
         self.oper_str = oper_str
         self.children = [ arg ]
-        super(UnaryNode, self).__init__()
 
     def __str__(self): return "%s%s" % (self.oper_str, self.children[0])
     def is_leaf(self): return False
+
+    def tree_str(self, level):
+        return "%s%s\n%s" % \
+                (indent_str(level), self.oper_str, self.children[0].tree_str(level + 1))
 
 class Not(UnaryNode):
     def __init__(self, arg):
@@ -57,6 +59,7 @@ class Lit(Node):
         return self
 
     def __str__(self): return self.name
+    def tree_str(self, level): return "%s%s" % (indent_str(level), str(self))
     def is_leaf(self): return True
 
     @staticmethod
@@ -68,17 +71,27 @@ class Lit(Node):
 class BinaryNode(Node):
 
     def __init__(self, oper_str, left, right):
+        print("Binary node ctor")
         self.oper_str = oper_str
         self.children = [left, right]
 
     def __str__(self):
         return "%s %s %s" % (self.children[0], self.oper_str, self.children[1])
 
+    def tree_str(self, level):
+        return "%s%s\n%s\n%s" % (
+                indent_str(level),
+                self.oper_str,
+                self.children[0].tree_str(level + 1),
+                self.children[1].tree_str(level + 1)
+                )
+
     def is_leaf(self): return False
 
 class And(BinaryNode):
 
     def __init__(self, left, right):
+        print("And constructor: %s")
         super(And, self).__init__(".", left, right)
 
     def _to_cnf(self, witness):
@@ -112,13 +125,60 @@ class Or(BinaryNode):
 
         return And(c1, And(c2, c3))
 
+class Clause(object):
+    """ A flat clause """
+    def __init__(self, items):
+        self.items = items
+
+    def __str__(self):
+        return " + ".join([ str(i) for i in self.items ])
+
+class ClauseList(object):
+    def __init__(self, clauses):
+        self.clauses = clauses
+
+    def __str__(self):
+        return "Clause list (len=%d):\n" % (len(self.clauses)) + \
+                "\n".join([ "  " + str(i) for i in self.clauses ])
+
+# XXX more descriptive name
+class CNFConverter(object):
+    """ Converts a CNF tree into flat clauses """
+    def __init__(self, tree):
+        self.tree = tree
+        self._cur_clause = [] # unwrapped
+        self.clauses = []
+
+    def go(self):
+        self._to_clauses(self.tree)
+        return ClauseList(self.clauses)
+
+    def _to_clauses(self, node):
+
+            if isinstance(node, And):
+                for child in node.children:
+                    collecting = not isinstance(child, And)
+                    self._to_clauses(child)
+                    if collecting:
+                        self.clauses.append(Clause(self._cur_clause))
+                        self._cur_clause = []
+            elif isinstance(node, Or):
+                for child in node.children: self._to_clauses(child)
+            elif isinstance(node, Lit) or isinstance(node, Not):
+                 # Note that a Not must have Lit as child in CNF
+                self._cur_clause.append(node)
+            else:
+                raise RuntimeError("Unknown node type: %s" % type(node))
+
+
 # XXX just a test
 if __name__ == "__main__":
     (a, b, c) = (Lit("a"), Lit("b"), Lit("c"))
 
     x = And(a, Or(b, c))
 
-    print(x.to_cnf())
-
-    cnf = x.to_cnf().is_cnf()
+    cnf = x.to_cnf()
     print(cnf)
+    print(format_tree(cnf))
+    clauses = cnf.to_clauses()
+    print(clauses)
